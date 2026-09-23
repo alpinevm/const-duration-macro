@@ -56,6 +56,20 @@ Months and years are mean lengths. A year is 365.2425 days, the average over the
 Gregorian calendar's 400-year cycle (31 556 952 seconds), and a month is one twelfth of
 that, 30.436875 days (2 629 746 seconds), so twelve months make exactly one year.
 
+## humantime
+
+The grammar is modelled on [humantime](https://crates.io/crates/humantime), and
+`tests/humantime.rs` checks against humantime 2.4 that every literal both accept parses
+to the same `Duration`. The differences are deliberate:
+
+- months and years: humantime uses 30.44 and 365.25 days, this crate the Gregorian means
+  above;
+- decimals: humantime accepts `1.5h`, this crate does not (write `90m`);
+- this crate additionally accepts the full words `nanosecond(s)`, `microsecond(s)` and
+  `millisecond(s)`, the Greek mu in `μs`, and integers wider than `u64`;
+- when nanoseconds carry past `u64::MAX` seconds, as in `18446744073709551615s 1000000000ns`,
+  this crate reports overflow where humantime 2.4 panics in `Duration::new`.
+
 ## MSRV
 
 **Rust 1.79.**

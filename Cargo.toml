@@ -10,3 +10,6 @@ keywords = ["duration", "const", "macro", "compile-time", "no_std"]
 categories = ["date-and-time", "no-std", "rust-patterns"]
 
 [dependencies]
+
+[dev-dependencies]
+humantime = "2.4.0"
