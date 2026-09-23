@@ -1,6 +1,6 @@
 //! Golden vectors against humantime, the parser this grammar is modelled on.
 //!
-//! Where the two grammars overlap, every literal must parse to the same `Duration`.
+//! Where the two grammars overlap, sampled literals must parse to the same `Duration`.
 //! Where they differ, the difference is pinned here on purpose, with both sides' values.
 
 use const_duration_macro::parse_duration;
@@ -21,19 +21,21 @@ fn ours(text: &str) -> Result<Duration, &'static str> {
     QUIET.call_once(|| {
         let default = panic::take_hook();
         panic::set_hook(Box::new(move |info| {
-            let documented = info
-                .payload()
-                .downcast_ref::<&str>()
-                .is_some_and(|message| MESSAGES.contains(message));
+            let documented = matches!(
+                info.payload().downcast_ref::<&str>(),
+                Some(message) if MESSAGES.contains(message)
+            );
             if !documented {
                 default(info);
             }
         }));
     });
     catch_unwind(|| parse_duration(text)).map_err(|payload| {
-        *payload
-            .downcast_ref::<&'static str>()
-            .expect("the parser panics with a literal message")
+        let message = payload.downcast_ref::<&'static str>().copied();
+        match message {
+            Some(message) if MESSAGES.contains(&message) => message,
+            _ => panic::resume_unwind(payload),
+        }
     })
 }
 
@@ -88,6 +90,7 @@ fn compound_literals_agree() {
         "  1 h   30 m  ",
         "1s 500ms 250us 1ns",
         "1d 2h 3m 4s 5ms 6us 7ns",
+        "999999999ns 1ns",
         "18446744073709551615 s",
         "18446744073709551615 s 999999999 ns",
     ] {
@@ -177,8 +180,34 @@ fn decimals_are_humantime_only() {
 }
 
 #[test]
-fn integers_wider_than_u64_are_ours_only() {
-    let text = "18446744073709551615999999999 ns";
-    assert_eq!(ours(text), Ok(Duration::MAX));
-    assert!(theirs(text).is_err());
+fn humantime_only() {
+    for (text, expected) in [
+        ("1nanos", Duration::from_nanos(1)),
+        ("1millis", Duration::from_millis(1)),
+        ("0", Duration::ZERO),
+        ("1\th", Duration::from_secs(3600)),
+        ("1\nh", Duration::from_secs(3600)),
+        ("1\u{a0}h", Duration::from_secs(3600)),
+        ("1 0 s", Duration::from_secs(10)),
+    ] {
+        assert_eq!(theirs(text), Ok(expected), "{text:?}");
+        assert!(ours(text).is_err(), "{text:?} accepted here");
+    }
+}
+
+#[test]
+fn values_over_u64_nanoseconds_are_ours_only() {
+    let largest_shared = Duration::from_micros(18_446_744_073_709_551);
+    assert_eq!(ours("18446744073709551us"), Ok(largest_shared));
+    assert_eq!(theirs("18446744073709551us"), Ok(largest_shared));
+    for (text, expected) in [
+        (
+            "18446744073709552us",
+            Duration::from_micros(18_446_744_073_709_552),
+        ),
+        ("18446744073709551615999999999 ns", Duration::MAX),
+    ] {
+        assert_eq!(ours(text), Ok(expected), "{text:?}");
+        assert!(theirs(text).is_err(), "{text:?} accepted by humantime");
+    }
 }

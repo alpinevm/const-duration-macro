@@ -14,7 +14,7 @@ assert_eq!(duration!("250ms"), Duration::from_millis(250));
 assert_eq!(duration!("1500us"), Duration::from_micros(1500));
 ```
 
-A typo is a build failure:
+A typo is a compile error, reported by `cargo check` too:
 
 ```text
 error[E0080]: evaluation panicked: unknown duration unit
@@ -23,15 +23,16 @@ error[E0080]: evaluation panicked: unknown duration unit
    |                               ------------------------- in this macro invocation
 ```
 
-No dependencies, no proc macro, `#![no_std]`. The whole crate is one `const fn` that
-walks the literal's bytes and an inline `const { … }` block that forces it to run
-during compilation.
+No dependencies, no proc macro, `#![no_std]`. The parser is a few `const fn`s over the
+literal's bytes; the macro binds the result to a `const` item, which rustc evaluates
+during analysis, so a bad literal is reported by `cargo check` and rust-analyzer, even
+inside generic code that is never instantiated.
 
 ## Grammar
 
 A literal is one or more pairs of an integer and a unit, such as `9 hrs` or `250ms`.
-Spaces between a number and its unit, and between pairs, are optional. Repeated units
-add up.
+Spaces, meaning U+0020 only, may appear before, between and after the pairs and between
+a number and its unit. Repeated units add up.
 
 | unit                                              | means           |
 |---------------------------------------------------|-----------------|
@@ -58,23 +59,27 @@ that, 30.436875 days (2 629 746 seconds), so twelve months make exactly one year
 
 ## humantime
 
-The grammar is modelled on [humantime](https://crates.io/crates/humantime), and
-`tests/humantime.rs` checks against humantime 2.4 that every literal both accept parses
-to the same `Duration`. The differences are deliberate:
+The grammar is modelled on [humantime](https://crates.io/crates/humantime).
+`tests/humantime.rs` checks against humantime 2.4.0 that every shared unit spelling, over
+a range of magnitudes and spacings, parses to the same `Duration`, and pins each known
+difference:
 
 - months and years: humantime uses 30.44 and 365.25 days, this crate the Gregorian means
   above;
-- decimals: humantime accepts `1.5h`, this crate does not (write `90m`);
-- this crate additionally accepts the full words `nanosecond(s)`, `microsecond(s)` and
-  `millisecond(s)`, the Greek mu in `μs`, and integers wider than `u64`;
+- humantime also accepts decimals (`1.5h`), the spellings `nanos` and `millis`, a bare
+  `0`, tabs, newlines and other Unicode spaces, and digits split by spaces (`1 0 s` is
+  ten seconds); this crate rejects all of these;
+- this crate also accepts the full words `nanosecond(s)`, `microsecond(s)` and
+  `millisecond(s)`, the Greek mu in `μs`, and any value up to `Duration::MAX`, where
+  humantime rejects anything over `u64::MAX` nanoseconds, about 584 years;
 - when nanoseconds carry past `u64::MAX` seconds, as in `18446744073709551615s 1000000000ns`,
-  this crate reports overflow where humantime 2.4 panics in `Duration::new`.
+  this crate reports overflow where humantime 2.4.0 panics in `Duration::new`.
 
 ## MSRV
 
-**Rust 1.79.**
+**Rust 1.58.**
 
-CI runs the test suite on both 1.79 and current stable.
+CI builds the crate on 1.58 and runs the test suite on current stable.
 
 ## License
 

@@ -13,19 +13,33 @@
 //! assert_eq!(duration!("1500us"), Duration::from_micros(1500));
 //! ```
 //!
-//! A literal that does not parse is a compile error, not a runtime panic:
+//! A literal that does not parse is a compile error, not a runtime panic. The macro binds
+//! the parsed value to a `const` item, which rustc evaluates during analysis, so the error
+//! is reported by `cargo check` too, and even inside generic code that is never
+//! instantiated:
 //!
 //! ```compile_fail,E0080
 //! use const_duration_macro::duration;
 //!
-//! let _ = duration!("9 fortnights");
+//! fn never_called<T>() {
+//!     let _ = duration!("9 fortnights");
+//! }
+//! ```
+//!
+//! Only string literals are accepted; `duration!(5)` and `duration!(b"1h")` fail to
+//! type-check:
+//!
+//! ```compile_fail,E0308
+//! use const_duration_macro::duration;
+//!
+//! let _ = duration!(5);
 //! ```
 //!
 //! # Grammar
 //!
 //! A literal is one or more pairs of an integer and a unit, such as `9 hrs` or `250ms`.
-//! Spaces between a number and its unit, and between pairs, are optional. Repeated units
-//! add up. The units are:
+//! Spaces, meaning U+0020 only, may appear before, between and after the pairs and between
+//! a number and its unit. Repeated units add up. The units are:
 //!
 //! | unit                                              | means            |
 //! |---------------------------------------------------|------------------|
@@ -162,7 +176,7 @@ const fn mul_add(a: u128, b: u128, c: u128) -> Result<u128, Error> {
 const fn try_parse(b: &[u8]) -> Result<Duration, Error> {
     let mut nanos: u128 = 0;
     let mut i = 0;
-    let mut parts = 0;
+    let mut any = false;
     while i < b.len() {
         while i < b.len() && b[i] == b' ' {
             i += 1;
@@ -200,9 +214,9 @@ const fn try_parse(b: &[u8]) -> Result<Duration, Error> {
             Ok(nanos) => nanos,
             Err(e) => return Err(e),
         };
-        parts += 1;
+        any = true;
     }
-    if parts == 0 {
+    if !any {
         return Err(Error::Empty);
     }
     let secs = nanos / SECOND as u128;
@@ -233,9 +247,10 @@ pub const fn parse_duration(s: &str) -> Duration {
 /// ```
 #[macro_export]
 macro_rules! duration {
-    ($s:literal) => {
-        const { $crate::parse_duration($s) }
-    };
+    ($s:literal) => {{
+        const DURATION: ::core::time::Duration = $crate::parse_duration($s);
+        DURATION
+    }};
 }
 
 #[cfg(test)]
@@ -358,6 +373,54 @@ mod tests {
     #[should_panic(expected = "duration exceeds Duration::MAX")]
     fn rejects_number_overflow() {
         parse_duration("1000000000000000000000000000000000000000 ns");
+    }
+
+    #[test]
+    #[should_panic(expected = "duration exceeds Duration::MAX")]
+    fn rejects_digit_accumulation_past_u128() {
+        parse_duration("340282366920938463463374607431768211456 ns");
+    }
+
+    #[test]
+    #[should_panic(expected = "duration exceeds Duration::MAX")]
+    fn rejects_sum_past_u128() {
+        parse_duration("340282366920938463463374607431768211455 ns 1 ns");
+    }
+
+    #[test]
+    fn nanoseconds_carry_into_seconds() {
+        assert_eq!(parse_duration("999999999ns 1ns"), Duration::from_secs(1));
+        assert_eq!(parse_duration("1500ms"), Duration::new(1, 500_000_000));
+    }
+
+    #[test]
+    #[should_panic(expected = "expected a number")]
+    fn syntax_is_checked_before_the_total() {
+        parse_duration("18446744073709551616s !");
+    }
+
+    #[test]
+    #[should_panic(expected = "expected a unit")]
+    fn rejects_tab() {
+        parse_duration("1\th");
+    }
+
+    #[test]
+    #[should_panic(expected = "unknown duration unit")]
+    fn rejects_non_breaking_space() {
+        parse_duration("1\u{a0}h");
+    }
+
+    #[test]
+    #[should_panic(expected = "expected a number")]
+    fn rejects_plus_sign() {
+        parse_duration("+1h");
+    }
+
+    #[test]
+    #[should_panic(expected = "expected a unit")]
+    fn rejects_digits_split_by_a_space() {
+        parse_duration("1 0 s");
     }
 
     #[test]

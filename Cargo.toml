@@ -2,7 +2,7 @@
 name = "const-duration-macro"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.79"
+rust-version = "1.58"
 description = "duration!(\"9 hrs\"): human-readable Duration literals parsed at compile time"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/alpinevm/const-duration-macro"
@@ -12,4 +12,4 @@ categories = ["date-and-time", "no-std", "rust-patterns"]
 [dependencies]
 
 [dev-dependencies]
-humantime = "2.4.0"
+humantime = "=2.4.0"
